@@ -10,12 +10,8 @@ var ui = {
 		arm: document.getElementById('gyro-arm'),
 		number: document.getElementById('gyro-number')
 	},
-	robotDiagram: {
-		arm: document.getElementById('robot-arm')
-	},
-	example: {
-		button: document.getElementById('example-button'),
-		readout: document.getElementById('example-readout')
+	resetGyro: {
+		button: document.getElementById('gyro-reset'),
 	},
 	tuning: {
 		list: document.getElementById('tuning'),
@@ -26,7 +22,10 @@ var ui = {
 		get: document.getElementById('get')
 	},
 	autoSelect: document.getElementById('auto-select'),
-    armPosition: document.getElementById('arm-position')
+	controllerChooser: document.getElementById('controller-chooser'),
+	lidStatus: document.getElementById('lidStatus'),
+	driveMode: document.getElementById('driveMode'),
+	autoAim: document.getElementById('autoAim')
 };
 
 // Sets function to be called on NetworkTables connect. Commented out because it's usually not necessary.
@@ -53,41 +52,20 @@ function onValueChanged(key, value, isNew) {
 
 	// This switch statement chooses which UI element to update when a NetworkTables variable changes.
 	switch (key) {
-		case '/SmartDashboard/drive/navx/yaw': // Gyro rotation
+		case '/SmartDashboard/gyroValue': // Gyro rotation
 			ui.gyro.val = value;
-			ui.gyro.visualVal = Math.floor(ui.gyro.val - ui.gyro.offset);
-			if (ui.gyro.visualVal < 0) { // Corrects for negative values
-				ui.gyro.visualVal += 360;
-			}
-			ui.gyro.arm.style.transform = ('rotate(' + ui.gyro.visualVal + 'deg)');
-			ui.gyro.number.innerHTML = ui.gyro.visualVal + 'º';
+			ui.gyro.arm.style.transform = ('rotate(' + ui.gyro.val + 'deg)');
+			ui.gyro.number.innerHTML = ui.gyro.val + 'º';
 			break;
-			// The following case is an example, for a robot with an arm at the front.
-			// Info on the actual robot that this works with can be seen at thebluealliance.com/team/1418/2016.
-		case '/SmartDashboard/arm/encoder':
-			// 0 is all the way back, 1200 is 45 degrees forward. We don't want it going past that.
-			if (value > 1140) {
-				value = 1140;
-			} else if (value < 0) {
-				value = 0;
-			}
-			// Calculate visual rotation of arm
-			var armAngle = value * 3 / 20 - 45;
-
-			// Rotate the arm in diagram to match real arm
-			ui.robotDiagram.arm.style.transform = 'rotate(' + armAngle + 'deg)';
+			// These are our status display values.
+		case '/SmartDashboard/lidStatus':
+			ui.lidStatus.innerHTML = value;
 			break;
-			// This button is just an example of triggering an event on the robot by clicking a button.
-		case '/SmartDashboard/example_variable':
-			if (value) { // If function is active:
-				// Add active class to button.
-				ui.example.button.className = 'active';
-				ui.example.readout.innerHTML = 'Value is true';
-			} else { // Otherwise
-				// Take it off
-				ui.example.button.className = '';
-				ui.example.readout.innerHTML = 'Value is false';
-			}
+		case '/SmartDashboard/driveMode':
+			ui.driveMode.innerHTML = value;
+			break;
+		case '/SmartDashboard/autoAim':
+			ui.autoAim.innerHTML = value;
 			break;
 		case '/SmartDashboard/time_running':
 			// When this NetworkTables variable is true, the timer will start.
@@ -125,7 +103,7 @@ function onValueChanged(key, value, isNew) {
 			}
 			NetworkTables.setValue(key, false);
 			break;
-		case '/SmartDashboard/autonomous/options': // Load list of prewritten autonomous modes
+		case '/SmartDashboard/autoChoices/options': // Load list of prewritten autonomous modes
 			// Clear previous list
 			while (ui.autoSelect.firstChild) {
 				ui.autoSelect.removeChild(ui.autoSelect.firstChild);
@@ -139,7 +117,24 @@ function onValueChanged(key, value, isNew) {
 			// Set value to the already-selected mode. If there is none, nothing will happen.
 			ui.autoSelect.value = NetworkTables.getValue('/SmartDashboard/currentlySelectedMode');
 			break;
-		case '/SmartDashboard/autonomous/selected':
+		case '/SmartDashboard/autoChoices/selected':
+			ui.autoSelect.value = value;
+			break;
+		case '/SmartDashboard/controllerChooser/options': // Load list of prewritten controller options
+			// Clear previous list
+			while (ui.controllerChooser.firstChild) {
+				ui.autoSecontrollerChooserlect.removeChild(ui.controllerChooser.firstChild);
+			}
+			// Make an option for each autonomous mode and put it in the selector
+			for (i = 0; i < value.length; i++) {
+				var option = document.createElement('option');
+				option.innerHTML = value[i];
+				ui.controllerChooser.appendChild(option);
+			}
+			// Set value to the already-selected mode. If there is none, nothing will happen.
+			ui.controllerChooser.value = NetworkTables.getValue('/SmartDashboard/controllerChooser');
+			break;
+		case '/SmartDashboard/controllerChooser/selected':
 			ui.autoSelect.value = value;
 			break;
 	}
@@ -206,17 +201,15 @@ function onValueChanged(key, value, isNew) {
 }
 
 // The rest of the doc is listeners for UI elements being clicked on
-ui.example.button.onclick = function() {
+ui.resetGyro.button.onclick = function() {
 	// Set NetworkTables values to the opposite of whether button has active class.
-	NetworkTables.setValue('/SmartDashboard/example_variable', this.className != 'active');
+	NetworkTables.setValue('/SmartDashboard/gyroReset', true);
 };
 
 // Reset gyro value to 0 on click
 ui.gyro.container.onclick = function() {
-	// Store previous gyro val, will now be subtracted from val for callibration
-	ui.gyro.offset = ui.gyro.val;
 	// Trigger the gyro to recalculate value.
-	onValueChanged('/SmartDashboard/drive/navx/yaw', ui.gyro.val);
+	NetworkTables.setValue('/SmartDashboard/gyroReset', true);
 };
 
 // Open tuning section when button is clicked
@@ -235,16 +228,16 @@ ui.tuning.set.onclick = function() {
 		NetworkTables.setValue('/SmartDashboard/' + ui.tuning.name.value, ui.tuning.value.value);
 	}
 };
+
 ui.tuning.get.onclick = function() {
 	ui.tuning.value.value = NetworkTables.getValue(ui.tuning.name.value);
 };
 
 // Update NetworkTables when autonomous selector is changed
 ui.autoSelect.onchange = function() {
-	NetworkTables.setValue('/SmartDashboard/autonomous/selected', this.value);
+	NetworkTables.setValue('/SmartDashboard/autoChoices', this.value);
 };
 
-// Get value of arm height slider when it's adjusted
-ui.armPosition.oninput = function() {
-	NetworkTables.setValue('/SmartDashboard/arm/encoder', parseInt(this.value));
-};
+ui.controllerChooser.onchange = function() {
+	NetworkTables.setValue('/SmartDashboard/controllerChooser', this.value);
+}
